@@ -1,0 +1,10 @@
+# compiled files
+*.o
+*.so
+test_wordle
+# subsript
+*.py
+# temp file
+text.txt
+# vscode
+.vscode
