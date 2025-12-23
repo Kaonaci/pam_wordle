@@ -14,7 +14,7 @@
 #include <syslog.h>
 
 // Tryes limit
-#define MAX_ATTEMPTS 7
+#define MAX_ATTEMPTS 8
 // Word length
 #define LEN 6
 // Words file path
@@ -172,7 +172,7 @@ int generate_secure_random_word(char *buffer) {
     unsigned char random_bytes[LEN];
     size_t bytes_read = 0;
     
-    // Безопасное чтение случайных байтов с обработкой EINTR
+    // Safe reading of random bytes with EINTR handling
     while (bytes_read < LEN) {
         ssize_t ret = getrandom(
             random_bytes + bytes_read,
@@ -181,15 +181,15 @@ int generate_secure_random_word(char *buffer) {
         );
         
         if (ret < 0) {
-            if (errno == EINTR) continue; // Прервано сигналом - повторить
-            return -1; // Критическая ошибка
+            if (errno == EINTR) continue;
+            return -1;
         }
         bytes_read += (size_t)ret;
     }
 
-    // Преобразование в строчные буквы с устранением смещения
+    // Convert to lowercase with offset removal
     for (int i = 0; i < LEN; i++) {
-        // Используем 256 % 26 = 22 "избыточных" значений для устранения смещения
+        // We use 256 % 26 = 22 "excess" values ​​to eliminate bias
         while (random_bytes[i] >= 234) { // 234 = 256 - (256 % 26)
             if (getrandom(&random_bytes[i], 1, GRND_NONBLOCK) != 1) {
                 return -1;
@@ -198,16 +198,15 @@ int generate_secure_random_word(char *buffer) {
         buffer[i] = 'a' + (random_bytes[i] % 26);
     }
     
-    buffer[LEN] = '\0'; // Гарантированное завершение строки
+    buffer[LEN] = '\0';
     return 0;
 }
 
 int check_word(char* entered_word, const char* hidden_word, char* result) {
     // Check status
     int success = 1;
-
-    // Build result string with emoji indicators
-    result[0] = '\0';
+    // 0 = absent, 1 = present, 2 = correct
+    int status[LEN] = {0};
 
     // Frequency array for hidden_word letters (a-z)
     int freq[26] = {0};
@@ -216,28 +215,47 @@ int check_word(char* entered_word, const char* hidden_word, char* result) {
         freq[c - 'a']++;
     }
 
-    // Create word hits status
+    // Create word hits status (two passing method)
     for (int i = 0; i < LEN; i++) {
-        if (freq[entered_word[i] - 'a'] != 0) {
-            if (entered_word[i] == hidden_word[i]) {
-                // Correct letter and correct position
-                strcat(result, IND_CORRECT);
-            }
-            else {
-                // Correct letter and incorrect position
-                success = 0;
-                strcat(result, IND_PRESENT);
-            }
+        if (entered_word[i] == hidden_word[i]) {
+            // Correct letter and correct position
+            status[i] = 2;
             freq[entered_word[i] - 'a']--;  // Decrement frequency
         }
         else {
-            // Incorrect letter
+            // User didn't guess full word
             success = 0;
-            strcat(result, IND_ABSENT);
+        }
+    }
+
+    for (int i = 0; i < LEN; i++) {
+        if (status[i] == 2) {
+            continue;
+        }
+        else if (freq[entered_word[i] - 'a'] != 0) {
+            // Correct letter and incorrect position
+            status[i] = 1;
+            freq[entered_word[i] - 'a']--;  // Decrement frequency
+        }
+        else {
+            // Inorrect letter
+            status[i] = 0;
         }
     }
 
     // Copy to result buffer with proper termination
+    result[0] = '\0';
+    for (int i = 0; i < LEN; i++) {
+        if (status[i] == 2) {
+            strcat(result, IND_CORRECT);
+        } else if (status[i] == 1) {
+            strcat(result, IND_PRESENT);
+            success = 0;  // Есть желтые -> игра не завершена
+        } else {
+            strcat(result, IND_ABSENT);
+            success = 0;  // Есть серые -> игра не завершена
+        }
+    }
     result[LEN * 4] = '\0';
     
     return success;
@@ -279,6 +297,10 @@ static int conversation_func(pam_handle_t *pamh, int msg_style, const char *mess
 }
 
 PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, const char **argv) {
+    // Stubs
+    (void)flags;
+    (void)argc;
+    (void)argv;
     // Get username
     const char *username;
     int retval = pam_get_user(pamh, &username, NULL);
@@ -306,7 +328,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
 
     for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         // Preparing dialog
-        char message1[32];
+        char message1[64];
         snprintf(message1, sizeof(message1), "[ attempt %d/%d ]\nWORD:  ", attempt, MAX_ATTEMPTS);
         // Buffer for entered word
         char entered_word[LEN + 2];
@@ -347,5 +369,10 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
 }
 
 PAM_EXTERN int pam_sm_setcred(pam_handle_t *pamh, int flags, int argc, const char **argv) {
+    // Stubs
+    (void)pamh;
+    (void)flags;
+    (void)argc;
+    (void)argv;
     return PAM_SUCCESS;
 }

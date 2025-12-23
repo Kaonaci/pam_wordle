@@ -60,7 +60,7 @@ int main(int argc, char *argv[]) {
     }
     printf("Testing PAM Wordle module for user: %s\n", user);
     
-    retval = pam_start("wordle_test", user, &conv, &pamh);
+    retval = pam_start("wordle", user, &conv, &pamh);
     if (retval != PAM_SUCCESS) {
         fprintf(stderr, "pam_start failed: %s\n", pam_strerror(pamh, retval));
         return 1;
